@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  frontend-ui:
+    build: ./Front-End_UI/frontend
+    container_name: frontend-ui
+    ports:
+      - "8091:3000"   # ← ici on mappe 3000 du container vers 3003 sur l’hôte
+    volumes:
+      - ./Front-End_UI/frontend:/app
+    command: npm start
+
+
+  log-analyser:
+    build: ./LogAnalyser/LogAnalyser
+    container_name: log-analyser
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./logs:/app/logs   # <-- ici, tout ce qui est écrit dans /app/logs sera sauvegardé sur ton disque
+    command: python -u app.py
+
+  log-collector:
+    build: ./LogCollector/LogCollector
+    container_name: log-collector
+    ports:
+      - "8082:8080"
+
+    command: python -u app.py
+
+  log-visualisation:
+    build: ./Api_Gateway/LogVisualisation
+    container_name: log-visualisation
+    ports:
+      - "8083:8080"
+    command: python -u app.py
