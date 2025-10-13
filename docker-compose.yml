@@ -5,28 +5,32 @@ services:
     build: ./Front-End_UI/frontend
     container_name: frontend-ui
     ports:
-      - "8091:3000"   # ← ici on mappe 3000 du container vers 3003 sur l’hôte
+      - "8091:3000"
     volumes:
       - ./Front-End_UI/frontend:/app
     command: npm start
-
 
   log-analyser:
     build: ./LogAnalyser/LogAnalyser
     container_name: log-analyser
     ports:
-      - "8081:8080"
+      - "8082:8080"
     volumes:
-      - ./logs:/app/logs   # <-- ici, tout ce qui est écrit dans /app/logs sera sauvegardé sur ton disque
+      - ./logs:/app/logs
     command: python -u app.py
 
   log-collector:
     build: ./LogCollector/LogCollector
     container_name: log-collector
     ports:
-      - "8082:8080"
-
-    command: python -u app.py
+      - "8081:8081"
+    depends_on:
+      - postgres
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/jenkins_log
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: root
+    command: java -jar log-collector.jar
 
   log-visualisation:
     build: ./Api_Gateway/LogVisualisation
@@ -34,3 +38,18 @@ services:
     ports:
       - "8083:8080"
     command: python -u app.py
+
+  postgres:
+    image: postgres:15
+    container_name: postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: jenkins_log
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: root
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
