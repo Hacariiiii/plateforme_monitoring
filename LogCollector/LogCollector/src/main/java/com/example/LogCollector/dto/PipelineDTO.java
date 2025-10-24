@@ -1,5 +1,8 @@
 package com.example.LogCollector.dto;
 
+
+import java.util.List;
+import com.fasterxml.jackson.annotation.JsonFormat;
 import java.time.LocalDateTime;
 
 public class PipelineDTO {
@@ -7,8 +10,13 @@ public class PipelineDTO {
     private String name;
     private String jenkinsUrl;
     private Integer totalBuilds;
+
+    @JsonFormat(pattern="yyyy-MM-dd HH:mm:ss")
     private LocalDateTime createdAt;
+    @JsonFormat(pattern="yyyy-MM-dd HH:mm:ss")
     private LocalDateTime updatedAt;
+
+    private List<BuildDTO> builds;
 
     public PipelineDTO() {}
 
@@ -22,7 +30,6 @@ public class PipelineDTO {
         this.updatedAt = updatedAt;
     }
 
-    // Getters and Setters
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
@@ -40,4 +47,7 @@ public class PipelineDTO {
 
     public LocalDateTime getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
+
+    public List<BuildDTO> getBuilds() { return builds; }
+    public void setBuilds(List<BuildDTO> builds) { this.builds = builds; }
 }

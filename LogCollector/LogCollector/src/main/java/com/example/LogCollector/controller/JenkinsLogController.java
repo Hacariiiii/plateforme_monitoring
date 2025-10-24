@@ -23,6 +23,8 @@ public class JenkinsLogController {
     @Value("${webhook.secret-token}")
     private String webhookSecretToken;
 
+    // ==================== WEBHOOK ====================
+
     /**
      * WEBHOOK ENDPOINT - Called by Jenkins
      * POST /api/jenkins-logs/webhook?jobName=project5&buildNumber=10&buildStatus=SUCCESS&token=xxx
@@ -63,8 +65,10 @@ public class JenkinsLogController {
         }
     }
 
+    // ==================== BASIC ENDPOINTS ====================
+
     /**
-     * GET all pipelines
+     * GET all pipelines (simple list)
      * GET /api/jenkins-logs/pipelines
      */
     @GetMapping("/pipelines")
@@ -130,6 +134,29 @@ public class JenkinsLogController {
     }
 
     /**
+     * GET build details by ID
+     * GET /api/jenkins-logs/builds/{buildId}
+     */
+    @GetMapping("/builds/{buildId}")
+    public ResponseEntity<?> getBuildById(@PathVariable Long buildId) {
+        try {
+            BuildDTO build = logService.getBuildById(buildId);
+            if (build == null) {
+                return ResponseEntity.notFound().build();
+            }
+            Map<String, Object> response = new HashMap<>();
+            response.put("status", "success");
+            response.put("data", build);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            Map<String, String> error = new HashMap<>();
+            error.put("status", "error");
+            error.put("message", e.getMessage());
+            return ResponseEntity.status(500).body(error);
+        }
+    }
+
+    /**
      * GET all logs for a build
      * GET /api/jenkins-logs/builds/{buildId}/logs
      */
@@ -173,28 +200,7 @@ public class JenkinsLogController {
         }
     }
 
-    /**
-     * GET build details by ID
-     * GET /api/jenkins-logs/builds/{buildId}
-     */
-    @GetMapping("/builds/{buildId}")
-    public ResponseEntity<?> getBuildById(@PathVariable Long buildId) {
-        try {
-            BuildDTO build = logService.getBuildById(buildId);
-            if (build == null) {
-                return ResponseEntity.notFound().build();
-            }
-            Map<String, Object> response = new HashMap<>();
-            response.put("status", "success");
-            response.put("data", build);
-            return ResponseEntity.ok(response);
-        } catch (Exception e) {
-            Map<String, String> error = new HashMap<>();
-            error.put("status", "error");
-            error.put("message", e.getMessage());
-            return ResponseEntity.status(500).body(error);
-        }
-    }
+    // ==================== HEALTH & INFO ====================
 
     /**
      * HEALTH CHECK
@@ -239,10 +245,171 @@ public class JenkinsLogController {
             put("Get Build Details", "GET /api/jenkins-logs/builds/{buildId}");
             put("Get Build Logs", "GET /api/jenkins-logs/builds/{buildId}/logs");
             put("Get Error Logs", "GET /api/jenkins-logs/builds/{buildId}/errors");
+            put("===== KAFKA ENDPOINTS =====", "");
+            put("Get All Pipelines with ALL Builds and Logs", "GET /api/jenkins-logs/kafka/pipelines/all");
+            put("Get All Builds with ALL Logs", "GET /api/jenkins-logs/kafka/builds/all");
+            put("Get All Builds WITHOUT Logs", "GET /api/jenkins-logs/kafka/builds/no-logs");
+            put("Get Last Build with ALL Logs", "GET /api/jenkins-logs/kafka/builds/last");
+            put("Get Last Pipeline with ALL Builds and Logs", "GET /api/jenkins-logs/kafka/pipelines/last");
+            put("===== SMART ENDPOINTS =====", "");
+            put("Last Pipeline Summary (No Logs)", "GET /api/jenkins-logs/smart/pipeline/last-summary");
+            put("Last Build Important Logs", "GET /api/jenkins-logs/smart/build/last-important");
+            put("All Pipelines Summary (No Logs)", "GET /api/jenkins-logs/smart/pipelines/all-summary");
             put("Health Check", "GET /api/jenkins-logs/health");
             put("API Info", "GET /api/jenkins-logs/info");
         }});
 
         return ResponseEntity.ok(info);
+    }
+
+    // ==================== KAFKA ENDPOINTS (Advanced) ====================
+
+    /**
+     * 1. GET all pipelines with ALL builds and ALL logs
+     * GET /api/jenkins-logs/kafka/pipelines/all
+     */
+    @GetMapping("/kafka/pipelines/all")
+    public ResponseEntity<?> getAllPipelinesWithKafka() {
+        try {
+            System.out.println("📍 GET /kafka/pipelines/all");
+            Map<String, Object> result = logService.getAllPipelinesWithBuildsAndLogs();
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of(
+                    "status", "error",
+                    "message", e.getMessage()
+            ));
+        }
+    }
+
+    /**
+     * 2. GET all builds with ALL logs
+     * GET /api/jenkins-logs/kafka/builds/all
+     */
+    @GetMapping("/kafka/builds/all")
+    public ResponseEntity<?> getAllBuildsWithKafka() {
+        try {
+            System.out.println("📍 GET /kafka/builds/all");
+            Map<String, Object> result = logService.getAllBuildsWithLogsData();
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of(
+                    "status", "error",
+                    "message", e.getMessage()
+            ));
+        }
+    }
+
+    /**
+     * 3. GET all builds WITHOUT logs
+     * GET /api/jenkins-logs/kafka/builds/no-logs
+     */
+    @GetMapping("/kafka/builds/no-logs")
+    public ResponseEntity<?> getAllBuildsWithoutLogsKafka() {
+        try {
+            System.out.println("📍 GET /kafka/builds/no-logs");
+            Map<String, Object> result = logService.getAllBuildsWithoutLogs();
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of(
+                    "status", "error",
+                    "message", e.getMessage()
+            ));
+        }
+    }
+
+    /**
+     * 4. GET LAST build with ALL logs
+     * GET /api/jenkins-logs/kafka/builds/last
+     */
+    @GetMapping("/kafka/builds/last")
+    public ResponseEntity<?> getLastBuildWithKafka() {
+        try {
+            System.out.println("📍 GET /kafka/builds/last");
+            Map<String, Object> result = logService.getLastBuildWithLogsData();
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of(
+                    "status", "error",
+                    "message", e.getMessage()
+            ));
+        }
+    }
+
+    /**
+     * 5. GET LAST pipeline with ALL builds and ALL logs
+     * GET /api/jenkins-logs/kafka/pipelines/last
+     */
+    @GetMapping("/kafka/pipelines/last")
+    public ResponseEntity<?> getLastPipelineWithKafka() {
+        try {
+            System.out.println("📍 GET /kafka/pipelines/last");
+            Map<String, Object> result = logService.getLastPipelineWithBuildsAndLogs();
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of(
+                    "status", "error",
+                    "message", e.getMessage()
+            ));
+        }
+    }
+
+    // ==================== SMART ENDPOINTS (جديد) ====================
+
+    /**
+     * 1️⃣ Last Pipeline Summary (بدون logs)
+     * GET /api/jenkins-logs/smart/pipeline/last-summary
+     * ✅ آخر pipeline مع builds الخاصة بها (بدون logs)
+     */
+    @GetMapping("/smart/pipeline/last-summary")
+    public ResponseEntity<?> getLastPipelineSummary() {
+        try {
+            System.out.println("📍 GET /smart/pipeline/last-summary");
+            Map<String, Object> result = logService.getLastPipelineSummary();
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of(
+                    "status", "error",
+                    "message", e.getMessage()
+            ));
+        }
+    }
+
+    /**
+     * 2️⃣ Last Build with Important Logs Only (ERROR, WARN)
+     * GET /api/jenkins-logs/smart/build/last-important
+     * ✅ آخر build مع logs المهمة فقط + Pipeline info
+     */
+    @GetMapping("/smart/build/last-important")
+    public ResponseEntity<?> getLastBuildWithImportantLogs() {
+        try {
+            System.out.println("📍 GET /smart/build/last-important");
+            Map<String, Object> result = logService.getLastBuildWithImportantLogs();
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of(
+                    "status", "error",
+                    "message", e.getMessage()
+            ));
+        }
+    }
+
+    /**
+     * 3️⃣ All Pipelines Summary (بدون logs)
+     * GET /api/jenkins-logs/smart/pipelines/all-summary
+     * ✅ كل pipelines مع builds الخاصة بها (بدون logs)
+     */
+    @GetMapping("/smart/pipelines/all-summary")
+    public ResponseEntity<?> getAllPipelinesSummary() {
+        try {
+            System.out.println("📍 GET /smart/pipelines/all-summary");
+            Map<String, Object> result = logService.getAllPipelinesSummary();
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of(
+                    "status", "error",
+                    "message", e.getMessage()
+            ));
+        }
     }
 }

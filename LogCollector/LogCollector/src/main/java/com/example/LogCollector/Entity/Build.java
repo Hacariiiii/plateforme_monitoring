@@ -27,6 +27,17 @@ public class Build {
 
     @Column(name = "duration")
     private Long duration;
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
+
+    public LocalDateTime getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public void setUpdatedAt(LocalDateTime updatedAt) {
+        this.updatedAt = updatedAt;
+    }
+
 
     @Column(name = "triggered_by")
     private String triggeredBy;
@@ -43,6 +54,8 @@ public class Build {
 
     public Build() {}
 
+
+
     public Build(Pipeline pipeline, Integer buildNumber, BuildStatus status) {
         this.pipeline = pipeline;
         this.buildNumber = buildNumber;
@@ -50,7 +63,7 @@ public class Build {
         this.createdAt = LocalDateTime.now();
     }
 
-    // Getters and Setters
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
@@ -80,4 +93,5 @@ public class Build {
 
     public List<Log> getLogs() { return logs; }
     public void setLogs(List<Log> logs) { this.logs = logs; }
+
 }

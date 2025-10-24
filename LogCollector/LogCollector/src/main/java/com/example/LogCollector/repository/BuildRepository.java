@@ -12,4 +12,8 @@ public interface BuildRepository extends JpaRepository<Build, Long> {
     List<Build> findByPipelineOrderByCreatedAtDesc(Pipeline pipeline);
     Optional<Build> findByPipelineAndBuildNumber(Pipeline pipeline, Integer buildNumber);
     List<Build> findByPipeline(Pipeline pipeline);
+    List<Build> findByPipelineId(Long pipelineId);
+
+    // ✅ جديد - آخر build
+    Optional<Build> findFirstByOrderByCreatedAtDesc();
 }

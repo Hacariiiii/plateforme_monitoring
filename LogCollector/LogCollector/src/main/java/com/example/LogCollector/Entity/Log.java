@@ -30,6 +30,7 @@ public class Log {
 
     public Log() {}
 
+
     public Log(Build build, LogLevel logLevel, String message) {
         this.build = build;
         this.logLevel = logLevel;
@@ -37,7 +38,6 @@ public class Log {
         this.createdAt = LocalDateTime.now();
     }
 
-    // Getters and Setters
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
