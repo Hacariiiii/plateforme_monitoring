@@ -1,46 +1,9 @@
 version: '3.8'
 
 services:
-  frontend-ui:
-    build: ./Front-End_UI/frontend
-    container_name: frontend-ui
-    ports:
-      - "8091:3000"
-    volumes:
-      - ./Front-End_UI/frontend:/app
-    command: npm start
-
-  log-analyser:
-    build: ./LogAnalyser/LogAnalyser
-    container_name: log-analyser
-    ports:
-      - "8082:8080"
-    volumes:
-      - ./logs:/app/logs
-    command: python -u app.py
-
-  log-collector:
-    build: ./LogCollector/LogCollector
-    container_name: log-collector
-    ports:
-      - "8081:8081"
-    depends_on:
-      - postgres
-    environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/jenkins_log
-      SPRING_DATASOURCE_USERNAME: postgres
-      SPRING_DATASOURCE_PASSWORD: root
-    command: java -jar log-collector.jar
-
-  log-visualisation:
-    build: ./Api_Gateway/LogVisualisation
-    container_name: log-visualisation
-    ports:
-      - "8083:8080"
-    command: python -u app.py
-
+  # ==================== POSTGRES DATABASE ====================
   postgres:
-    image: postgres:15
+    image: postgres:15-alpine
     container_name: postgres
     ports:
       - "5432:5432"
@@ -50,6 +13,179 @@ services:
       POSTGRES_PASSWORD: root
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - jenkins-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ==================== ZOOKEEPER ====================
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - jenkins-network
+
+  # ==================== KAFKA ====================
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
+    ports:
+      - "9092:9092"
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_MESSAGE_MAX_BYTES: 1200000000
+      KAFKA_REPLICA_FETCH_MAX_BYTES: 1200000000
+    networks:
+      - jenkins-network
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions.sh --bootstrap-server localhost:9092"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ==================== LOG COLLECTOR (Spring Boot) ====================
+  log-collector:
+    build:
+      context: ./LogCollector/LogCollector
+      dockerfile: Dockerfile
+    container_name: log-collector
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      # Spring Profiles
+      SPRING_PROFILES_ACTIVE: docker
+
+      # PostgreSQL Configuration
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/jenkins_log
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: root
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+
+      # ⭐ JENKINS CONFIGURATION - IMPORTANT ⭐
+      # Si Jenkins est sur ta machine locale:
+      JENKINS_URL: http://host.docker.internal:8080
+      # Si Jenkins est en Docker (décommenter plus bas):
+      # JENKINS_URL: http://jenkins:8080
+
+      JENKINS_USERNAME: mouad
+      JENKINS_API_KEY: 1137e011c1d1e4e46a7475fc1b516bbf4c
+
+      # Webhook Security
+      WEBHOOK_SECRET_TOKEN: 119b088237bb9828d10be9d85d1470fc49
+
+      # Kafka Configuration
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_KAFKA_PRODUCER_KEY_SERIALIZER: org.apache.kafka.common.serialization.StringSerializer
+      SPRING_KAFKA_PRODUCER_VALUE_SERIALIZER: org.apache.kafka.common.serialization.StringSerializer
+      SPRING_KAFKA_PRODUCER_ACKS: all
+      SPRING_KAFKA_TEMPLATE_DEFAULT_TOPIC: jenkins-logs
+
+      # Logging
+      LOGGING_LEVEL_ROOT: INFO
+      LOGGING_LEVEL_COM_EXAMPLE_LOGCOLLECTOR: DEBUG
+    networks:
+      - jenkins-network
+    restart: unless-stopped
+
+  # ==================== LOG ANALYSER (Python) ====================
+  log-analyser:
+    build:
+      context: ./LogAnalyser/LogAnalyser
+      dockerfile: Dockerfile
+    container_name: log-analyser
+    ports:
+      - "8082:8080"
+    depends_on:
+      - kafka
+      - log-collector
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_TOPIC: jenkins-logs
+      LOG_COLLECTOR_URL: http://log-collector:8081
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - jenkins-network
+    restart: unless-stopped
+
+  # ==================== LOG VISUALISATION (Python) ====================
+  log-visualisation:
+    build:
+      context: ./Api_Gateway/LogVisualisation
+      dockerfile: Dockerfile
+    container_name: log-visualisation
+    ports:
+      - "8083:8080"
+    depends_on:
+      - log-collector
+      - log-analyser
+    environment:
+      LOG_COLLECTOR_URL: http://log-collector:8081
+      LOG_ANALYSER_URL: http://log-analyser:8082
+    networks:
+      - jenkins-network
+    restart: unless-stopped
+
+  # ==================== FRONTEND UI ====================
+  frontend-ui:
+    build:
+      context: ./Front-End_UI/frontend
+      dockerfile: Dockerfile
+    container_name: frontend-ui
+    ports:
+      - "8091:3000"
+    depends_on:
+      - log-collector
+      - log-visualisation
+    environment:
+      REACT_APP_API_URL: http://localhost:8081
+    networks:
+      - jenkins-network
+    restart: unless-stopped
+
+  # ==================== JENKINS (OPTIONNEL) ====================
+  # Décommente pour lancer Jenkins en Docker
+  # Sinon, Jenkins doit être sur ta machine locale (http://localhost:8080)
+  # Et mets à jour JENKINS_URL ci-dessus: http://host.docker.internal:8080
+
+  # jenkins:
+  #   image: jenkins/jenkins:lts-alpine
+  #   container_name: jenkins
+  #   ports:
+  #     - "8084:8080"
+  #     - "50000:50000"
+  #   environment:
+  #     JENKINS_ADMIN_ID: admin
+  #     JENKINS_ADMIN_PASSWORD: admin
+  #   volumes:
+  #     - jenkins_home:/var/jenkins_home
+  #   networks:
+  #     - jenkins-network
+  #   restart: unless-stopped
 
 volumes:
   postgres_data:
+  jenkins_home:
+
+networks:
+  jenkins-network:
+    driver: bridge
