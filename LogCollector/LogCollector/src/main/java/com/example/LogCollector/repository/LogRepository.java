@@ -1,8 +1,8 @@
 package com.example.LogCollector.repository;
 
-import com.example.LogCollector.entity.Build;
-import com.example.LogCollector.entity.Log;
-import com.example.LogCollector.entity.LogLevel;
+import com.example.LogCollector.Entity.Build;
+import com.example.LogCollector.Entity.Log;
+import com.example.LogCollector.Entity.LogLevel;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 import java.util.List;

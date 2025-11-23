@@ -33,19 +33,25 @@ public class BuildDTO {
     public BuildDTO() {}
 
     public BuildDTO(Long id, Integer buildNumber, String status, LocalDateTime startTime,
-                    LocalDateTime endTime, Long duration, String triggeredBy, Integer logCount,
-                    Long pipelineId, LocalDateTime createdAt) {
-        this.id = id;
-        this.buildNumber = buildNumber;
-        this.status = status;
-        this.startTime = startTime;
-        this.endTime = endTime;
-        this.duration = duration;
-        this.triggeredBy = triggeredBy;
-        this.logCount = logCount;
-        this.pipelineId = pipelineId;
-        this.createdAt = createdAt;
-    }
+                LocalDateTime endTime, Long duration, String triggeredBy,
+                Long pipelineId, LocalDateTime createdAt,
+                List<LogDTO> logs) {
+
+    this.id = id;
+    this.buildNumber = buildNumber;
+    this.status = status;
+    this.startTime = startTime;
+    this.endTime = endTime;
+    this.duration = duration;
+    this.triggeredBy = triggeredBy;
+    this.pipelineId = pipelineId;
+    this.createdAt = createdAt;
+    this.logs = logs;
+
+    // logCount dérivé automatiquement
+    this.logCount = (logs != null ? logs.size() : 0);
+}
+
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }

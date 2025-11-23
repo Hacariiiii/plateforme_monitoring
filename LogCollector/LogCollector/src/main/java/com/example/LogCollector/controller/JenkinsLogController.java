@@ -8,6 +8,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.client.RestTemplate;
+
 import java.util.List;
 import java.util.HashMap;
 import java.util.Map;
@@ -322,18 +324,12 @@ public class JenkinsLogController {
      * 4. GET LAST build with ALL logs
      * GET /api/jenkins-logs/kafka/builds/last
      */
-    @GetMapping("/kafka/builds/last")
-    public ResponseEntity<?> getLastBuildWithKafka() {
-        try {
-            System.out.println("📍 GET /kafka/builds/last");
-            Map<String, Object> result = logService.getLastBuildWithLogsData();
-            return ResponseEntity.ok(result);
-        } catch (Exception e) {
-            return ResponseEntity.status(500).body(Map.of(
-                    "status", "error",
-                    "message", e.getMessage()
-            ));
-        }
+
+
+    @GetMapping("/builds/last")
+    public ResponseEntity<Map<String, Object>> getLastBuild() {
+        Map<String, Object> result = logService.getLastBuildWithLogsData();
+        return ResponseEntity.ok(result);
     }
 
     /**
@@ -353,6 +349,7 @@ public class JenkinsLogController {
             ));
         }
     }
+    
 
     // ==================== SMART ENDPOINTS (جديد) ====================
 
@@ -412,4 +409,5 @@ public class JenkinsLogController {
             ));
         }
     }
+    
 }

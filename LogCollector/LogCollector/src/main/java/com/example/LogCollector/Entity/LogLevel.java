@@ -1,4 +1,4 @@
-package com.example.LogCollector.entity;
+package com.example.LogCollector.Entity;
 
 public enum LogLevel {
     INFO, WARN, ERROR, DEBUG
