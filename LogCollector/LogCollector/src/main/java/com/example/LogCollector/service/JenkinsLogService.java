@@ -1,9 +1,12 @@
 package com.example.LogCollector.service;
 
-import com.example.LogCollector.entity.*;
+import com.example.LogCollector.Entity.*;
 import com.example.LogCollector.dto.*;
 import com.example.LogCollector.repository.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -17,7 +20,6 @@ import org.springframework.http.ResponseEntity;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
-import java.util.Base64;
 
 @Service
 public class JenkinsLogService {
@@ -55,69 +57,180 @@ public class JenkinsLogService {
     /**
      * Webhook collection - Called when Jenkins sends build info
      */
-    public BuildDTO collectAndSaveLogs(String jobName, Integer buildNumber, String buildStatus) {
-        try {
-            System.out.println("🔄 Starting log collection for job: " + jobName + " #" + buildNumber);
+public BuildDTO collectAndSaveLogs(String jobName, Integer buildNumber, String buildStatus) {
+    try {
+        System.out.println("🔄 Starting log collection for job: " + jobName + " #" + buildNumber);
 
-            Pipeline pipeline = pipelineRepository.findByName(jobName)
-                    .orElseGet(() -> {
-                        Pipeline newPipeline = new Pipeline(jobName, jenkinsUrl + "/job/" + jobName);
-                        return pipelineRepository.save(newPipeline);
-                    });
+        // 1️⃣ Vérifier ou créer le pipeline
+        Pipeline pipeline = pipelineRepository.findByName(jobName)
+                .orElseGet(() -> {
+                    Pipeline newPipeline = new Pipeline(jobName, jenkinsUrl + "/job/" + jobName);
+                    return pipelineRepository.save(newPipeline);
+                });
+        System.out.println("✓ Pipeline ID: " + pipeline.getId());
 
-            System.out.println("✓ Pipeline ID: " + pipeline.getId());
+        // 2️⃣ Vérifier si le build existe déjà
+        Optional<Build> existingBuild = buildRepository.findByPipelineAndBuildNumber(pipeline, buildNumber);
+        if (existingBuild.isPresent()) {
+            System.out.println("⚠️ Build #" + buildNumber + " already exists, skipping");
 
-            Optional<Build> existingBuild = buildRepository.findByPipelineAndBuildNumber(pipeline, buildNumber);
-            if (existingBuild.isPresent()) {
-                System.out.println("⚠️ Build #" + buildNumber + " already exists, skipping");
-                return convertBuildToDTO(existingBuild.get());
-            }
+            // Forcer le chargement des logs pour le DTO
+            Build existing = existingBuild.get();
+            existing.getLogs().size();
+            return convertBuildToDTO(existing);
+        }
 
-            String consoleUrl = jenkinsUrl + "/job/" + jobName + "/" + buildNumber + "/consoleText";
-            HttpHeaders headers = createAuthHeaders();
-            HttpEntity<String> entity = new HttpEntity<>(headers);
+        // 3️⃣ Récupérer les logs Jenkins
+        String consoleUrl = jenkinsUrl + "/job/" + jobName + "/" + buildNumber + "/consoleText";
+        HttpHeaders headers = createAuthHeaders();
+        HttpEntity<String> entity = new HttpEntity<>(headers);
+        ResponseEntity<String> consoleResponse = restTemplate.exchange(consoleUrl, HttpMethod.GET, entity, String.class);
+        String consoleLogs = consoleResponse.getBody();
+        System.out.println("✓ Console logs retrieved, size: " + consoleLogs.length());
 
-            ResponseEntity<String> consoleResponse = restTemplate.exchange(
-                    consoleUrl, HttpMethod.GET, entity, String.class
-            );
-            String consoleLogs = consoleResponse.getBody();
+        // 4️⃣ Déterminer le status final
+        BuildStatus finalStatus = (buildStatus == null || buildStatus.equals("null"))
+                ? parseBuildStatus(consoleLogs)
+                : BuildStatus.valueOf(buildStatus);
 
-            System.out.println("✓ Console logs retrieved, size: " + consoleLogs.length());
+        // 5️⃣ Créer et sauvegarder le build
+        Build build = new Build(pipeline, buildNumber, finalStatus);
+        build.setTriggeredBy("Jenkins Webhook");
+        build.setCreatedAt(LocalDateTime.now());
+        Build savedBuild = buildRepository.save(build);
 
-            BuildStatus finalStatus = (buildStatus == null || buildStatus.equals("null"))
-                    ? parseBuildStatus(consoleLogs)
-                    : BuildStatus.valueOf(buildStatus);
+        // 6️⃣ Sauvegarder les logs associés
+        parseLogs(savedBuild, consoleLogs);
 
-            Build build = new Build(pipeline, buildNumber, finalStatus);
-            build.setTriggeredBy("Jenkins Webhook");
-            build.setCreatedAt(LocalDateTime.now());
-            Build savedBuild = buildRepository.save(build);
+        // 6.1️⃣ Forcer Hibernate à charger les logs
+        Build buildWithLogs = buildRepository.findById(savedBuild.getId())
+                .orElseThrow(() -> new RuntimeException("Build non trouvé après sauvegarde"));
+        buildWithLogs.getLogs().size(); // force fetch
 
-            System.out.println("✓ Build saved with ID: " + savedBuild.getId());
+        System.out.println("✓ Build saved with ID: " + buildWithLogs.getId());
 
-            parseLogs(savedBuild, consoleLogs);
+        // 7️⃣ Convertir en DTO
+        BuildDTO buildDTO = convertBuildToDTO(buildWithLogs);
+        System.out.println("DEBUG: Logs dans BuildDTO avant envoi à Analyzer : " + buildDTO.getLogs().size());
 
-            System.out.println("✅ Log collection completed");
+        // 8️⃣ Envoyer automatiquement à Analyzer
+        sendToAnalyzer(buildDTO);
 
-            return convertBuildToDTO(savedBuild);
+        System.out.println("✅ Log collection and Analyzer push completed");
 
-        } catch (Exception e) {
-            System.err.println("❌ Error collecting logs: " + e.getMessage());
-            e.printStackTrace();
-            throw new RuntimeException("Failed to collect Jenkins log: " + e.getMessage());
+        return buildDTO;
+
+    } catch (Exception e) {
+        System.err.println("❌ Error collecting logs: " + e.getMessage());
+        e.printStackTrace();
+        throw new RuntimeException("Failed to collect Jenkins log: " + e.getMessage());
+    }
+}
+
+
+public void sendToAnalyzer(BuildDTO build) {
+    BuildMessageDTO dto = new BuildMessageDTO();
+    List<Map<String, Object>> dataList = new ArrayList<>();
+
+    Map<String, Object> buildMap = new HashMap<>();
+    buildMap.put("pipelineId", build.getPipelineId());
+    buildMap.put("buildNumber", build.getBuildNumber());
+    buildMap.put("status", build.getStatus());
+    buildMap.put("triggeredBy", build.getTriggeredBy());
+    buildMap.put("startTime", build.getStartTime());
+    buildMap.put("endTime", build.getEndTime());
+
+    // Transformation explicite des logs en Map
+    List<Map<String, Object>> logMaps = new ArrayList<>();
+    if (build.getLogs() != null) {
+        for (LogDTO log : build.getLogs()) {
+            Map<String, Object> logMap = new HashMap<>();
+            logMap.put("id", log.getId());
+            logMap.put("logLevel", log.getLogLevel());
+            logMap.put("message", log.getMessage());
+            logMap.put("stackTrace", log.getStackTrace());
+            logMap.put("createdAt", log.getCreatedAt());
+            logMaps.add(logMap);
         }
     }
+    buildMap.put("logs", logMaps);
 
-    private void parseLogs(Build build, String consoleLogs) {
-        String[] lines = consoleLogs.split("\n");
-        for (String line : lines) {
-            if (line.trim().isEmpty()) continue;
-            LogLevel level = determineLogLevel(line);
-            Log logEntry = new Log(build, level, line);
-            logRepository.save(logEntry);
-        }
-        System.out.println("✓ Saved " + lines.length + " log entries for build #" + build.getBuildNumber());
+    dataList.add(buildMap);
+    dto.setData(dataList);
+
+    // DEBUG
+    System.out.println("DEBUG: DTO ready to send: " + dto.getData());
+
+    // Envoi
+    RestTemplate restTemplate = new RestTemplate();
+    try {
+        restTemplate.postForEntity("http://localhost:8082/api/analyzer/builds/analyze", dto, Map.class);
+        System.out.println("✅ Build envoyé à Analyzer : " + build.getBuildNumber());
+    } catch (Exception e) {
+        System.err.println("❌ Erreur lors de l'envoi à Analyzer : " + e.getMessage());
     }
+}
+
+
+
+// === Conversion BuildDTO -> BuildMessageDTO pour Analyzer ===
+public BuildMessageDTO convertToBuildMessageDTO(BuildDTO build) {
+    BuildMessageDTO dto = new BuildMessageDTO();
+    List<Map<String, Object>> dataList = new ArrayList<>();
+
+    Map<String, Object> buildMap = new HashMap<>();
+    buildMap.put("pipelineId", build.getPipelineId());
+    buildMap.put("buildNumber", build.getBuildNumber());
+    buildMap.put("status", build.getStatus());
+    buildMap.put("triggeredBy", build.getTriggeredBy());
+    buildMap.put("startTime", build.getStartTime());
+    buildMap.put("endTime", build.getEndTime());
+List<Map<String, Object>> logMaps = new ArrayList<>();
+if (build.getLogs() != null) {
+    for (LogDTO log : build.getLogs()) {
+        Map<String, Object> logMap = new HashMap<>();
+        logMap.put("id", log.getId());
+        logMap.put("logLevel", log.getLogLevel());
+        logMap.put("message", log.getMessage());
+        logMap.put("stackTrace", log.getStackTrace());
+        logMap.put("createdAt", log.getCreatedAt() != null ? log.getCreatedAt().toString() : null);
+        logMaps.add(logMap);
+    }
+}
+buildMap.put("logs", logMaps); 
+
+    dataList.add(buildMap);
+    dto.setData(dataList);
+
+    return dto;
+}
+
+
+
+private void parseLogs(Build build, String consoleLogs) {
+    String[] lines = consoleLogs.split("\n");
+    List<Log> logsToAdd = new ArrayList<>();
+    for (String line : lines) {
+        if (line.trim().isEmpty()) continue;
+        LogLevel level = determineLogLevel(line);
+        Log logEntry = new Log(build, level, line);
+        logRepository.save(logEntry); // <-- sauvegarde individuelle
+
+        logsToAdd.add(logEntry);
+    }
+
+    if (build.getLogs() == null) {
+        build.setLogs(new ArrayList<>());
+    }
+    build.getLogs().addAll(logsToAdd);
+
+    // ⚠️ Assurer que build est resauvegardé pour mettre à jour la collection
+    buildRepository.save(build);
+
+    System.out.println("✓ Saved " + logsToAdd.size() + " log entries for build #" + build.getBuildNumber());
+}
+
+
 
     private LogLevel determineLogLevel(String line) {
         if (line.contains("[ERROR]") || line.contains("ERROR") ||
@@ -309,7 +422,7 @@ public class JenkinsLogService {
             result.put("timestamp", LocalDateTime.now());
 
             try {
-                kafkaTemplate.send(kafkaTopic, "last_build_important",
+                kafkaTemplate.send(kafkaTopic, "last_build",
                         objectMapper.writeValueAsString(result));
                 System.out.println("✅ Sent to Kafka: last_build_important");
             } catch (Exception e) {
@@ -459,44 +572,43 @@ public class JenkinsLogService {
             throw new RuntimeException("Error: " + e.getMessage());
         }
     }
+  public Map<String, Object> getLastBuildWithLogsData() {
+        Map<String, Object> result = new HashMap<>();
+        result.put("timestamp", LocalDateTime.now());
 
-    public Map<String, Object> getLastBuildWithLogsData() {
         try {
-            Build lastBuild = buildRepository.findAll()
+            var lastBuild = buildRepository.findAll()
                     .stream()
-                    .max((b1, b2) -> b1.getCreatedAt().compareTo(b2.getCreatedAt()))
+                    .max(Comparator.comparing(Build::getCreatedAt))
                     .orElse(null);
 
             if (lastBuild == null) {
-                return Map.of("status", "error", "message", "No builds found");
+                result.put("status", "success");
+                result.put("data", Collections.emptyList());
+                result.put("message", "No builds found");
+            } else {
+                var buildDTO = convertBuildToDTO(lastBuild);
+                List<LogDTO> logs = logRepository.findByBuildOrderByCreatedAtDesc(lastBuild)
+                        .stream()
+                        .map(this::convertLogToDTO)
+                        .collect(Collectors.toList());
+                buildDTO.setLogs(logs);
+                buildDTO.setLogCount(logs.size());
+
+                result.put("status", "success");
+                result.put("data", buildDTO);
             }
-
-            BuildDTO buildDTO = convertBuildToDTO(lastBuild);
-            List<LogDTO> logs = logRepository.findByBuildOrderByCreatedAtDesc(lastBuild)
-                    .stream()
-                    .map(this::convertLogToDTO)
-                    .collect(Collectors.toList());
-
-            buildDTO.setLogs(logs);
-            buildDTO.setLogCount(logs.size());
-
-            Map<String, Object> result = new HashMap<>();
-            result.put("status", "success");
-            result.put("data", buildDTO);
-            result.put("timestamp", LocalDateTime.now());
-
-            try {
-                kafkaTemplate.send(kafkaTopic, "last_build", objectMapper.writeValueAsString(result));
-            } catch (Exception e) {
-                System.err.println("⚠️ Kafka error: " + e.getMessage());
-            }
-
-            return result;
         } catch (Exception e) {
+            result.put("status", "error");
+            result.put("data", Collections.emptyList());
+            result.put("message", e.getMessage());
             e.printStackTrace();
-            throw new RuntimeException("Error: " + e.getMessage());
         }
+
+        return result;
     }
+
+
 
     public Map<String, Object> getLastPipelineWithBuildsAndLogs() {
         try {
@@ -588,24 +700,45 @@ public class JenkinsLogService {
         );
     }
 
-    private BuildDTO convertBuildToDTO(Build build) {
-        int logCount = 0;
-        if (build.getLogs() != null) {
-            logCount = build.getLogs().size();
+private BuildDTO convertBuildToDTO(Build build) {
+    // Force Hibernate à charger la collection
+    List<Log> logs = build.getLogs();
+    if (logs != null) logs.size(); // force le fetch
+
+    List<LogDTO> logDTOs = new ArrayList<>();
+    if (logs != null) {
+        for (Log log : logs) {
+            LogDTO dto = new LogDTO();
+            dto.setId(log.getId());
+             dto.setLogLevel(log.getLogLevel() != null ? log.getLogLevel().toString() : null);
+            dto.setMessage(log.getMessage());
+            dto.setStackTrace(log.getStackTrace());
+            dto.setCreatedAt(log.getCreatedAt());
+            logDTOs.add(dto);
         }
-        return new BuildDTO(
-                build.getId(),
-                build.getBuildNumber(),
-                build.getStatus().toString(),
-                build.getStartTime(),
-                build.getEndTime(),
-                build.getDuration(),
-                build.getTriggeredBy(),
-                logCount,
-                build.getPipeline().getId(),
-                build.getCreatedAt()
-        );
     }
+
+    BuildDTO dto = new BuildDTO();
+    dto.setId(build.getId());
+    dto.setBuildNumber(build.getBuildNumber());
+    dto.setStatus(build.getStatus().toString());
+    dto.setStartTime(build.getStartTime());
+    dto.setEndTime(build.getEndTime());
+    dto.setTriggeredBy(build.getTriggeredBy());
+    dto.setPipelineId(build.getPipeline().getId());
+    dto.setCreatedAt(build.getCreatedAt());
+    dto.setLogs(logDTOs);
+
+    // DEBUG
+    System.out.println("DEBUG: BuildDTO logs size = " + logDTOs.size());
+    for (LogDTO l : logDTOs) {
+        System.out.println("Log: " + l.getMessage());
+    }
+
+    return dto;
+}
+
+
 
     private LogDTO convertLogToDTO(Log log) {
         return new LogDTO(

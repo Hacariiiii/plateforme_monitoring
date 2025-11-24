@@ -1,9 +1,12 @@
-package com.example.LogCollector.entity;
+package com.example.LogCollector.Entity;
 
 import jakarta.persistence.*;
+import lombok.Data;
+
 import java.time.LocalDateTime;
 import java.util.List;
 
+@Data
 @Entity
 @Table(name = "build")
 public class Build {
@@ -27,17 +30,9 @@ public class Build {
 
     @Column(name = "duration")
     private Long duration;
+
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
-
-    public LocalDateTime getUpdatedAt() {
-        return updatedAt;
-    }
-
-    public void setUpdatedAt(LocalDateTime updatedAt) {
-        this.updatedAt = updatedAt;
-    }
-
 
     @Column(name = "triggered_by")
     private String triggeredBy;
@@ -54,44 +49,25 @@ public class Build {
 
     public Build() {}
 
-
-
     public Build(Pipeline pipeline, Integer buildNumber, BuildStatus status) {
         this.pipeline = pipeline;
         this.buildNumber = buildNumber;
         this.status = status;
-        this.createdAt = LocalDateTime.now();
     }
 
+    @PrePersist
+    public void onCreate() {
+        createdAt = LocalDateTime.now();
+        startTime = LocalDateTime.now();
+        updatedAt = LocalDateTime.now();
+    }
 
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
+    @PreUpdate
+    public void onUpdate() {
+        updatedAt = LocalDateTime.now();
 
-    public Integer getBuildNumber() { return buildNumber; }
-    public void setBuildNumber(Integer buildNumber) { this.buildNumber = buildNumber; }
-
-    public BuildStatus getStatus() { return status; }
-    public void setStatus(BuildStatus status) { this.status = status; }
-
-    public LocalDateTime getStartTime() { return startTime; }
-    public void setStartTime(LocalDateTime startTime) { this.startTime = startTime; }
-
-    public LocalDateTime getEndTime() { return endTime; }
-    public void setEndTime(LocalDateTime endTime) { this.endTime = endTime; }
-
-    public Long getDuration() { return duration; }
-    public void setDuration(Long duration) { this.duration = duration; }
-
-    public String getTriggeredBy() { return triggeredBy; }
-    public void setTriggeredBy(String triggeredBy) { this.triggeredBy = triggeredBy; }
-
-    public LocalDateTime getCreatedAt() { return createdAt; }
-    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
-
-    public Pipeline getPipeline() { return pipeline; }
-    public void setPipeline(Pipeline pipeline) { this.pipeline = pipeline; }
-
-    public List<Log> getLogs() { return logs; }
-    public void setLogs(List<Log> logs) { this.logs = logs; }
-
+        if (startTime != null && endTime != null) {
+            duration = java.time.Duration.between(startTime, endTime).toSeconds();
+        }
+    }
 }

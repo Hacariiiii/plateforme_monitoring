@@ -1,8 +1,10 @@
-package com.example.LogCollector.entity;
+package com.example.LogCollector.Entity;
 
 import jakarta.persistence.*;
+import lombok.Data;
 import java.time.LocalDateTime;
 
+@Data
 @Entity
 @Table(name = "log")
 public class Log {
@@ -30,29 +32,14 @@ public class Log {
 
     public Log() {}
 
-
     public Log(Build build, LogLevel logLevel, String message) {
         this.build = build;
         this.logLevel = logLevel;
         this.message = message;
-        this.createdAt = LocalDateTime.now();
     }
 
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
-
-    public LogLevel getLogLevel() { return logLevel; }
-    public void setLogLevel(LogLevel logLevel) { this.logLevel = logLevel; }
-
-    public String getMessage() { return message; }
-    public void setMessage(String message) { this.message = message; }
-
-    public String getStackTrace() { return stackTrace; }
-    public void setStackTrace(String stackTrace) { this.stackTrace = stackTrace; }
-
-    public LocalDateTime getCreatedAt() { return createdAt; }
-    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
-
-    public Build getBuild() { return build; }
-    public void setBuild(Build build) { this.build = build; }
+    @PrePersist
+    public void onCreate() {
+        createdAt = LocalDateTime.now();
+    }
 }

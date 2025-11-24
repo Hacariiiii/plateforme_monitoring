@@ -1,9 +1,11 @@
-package com.example.LogCollector.entity;
+package com.example.LogCollector.Entity;
 
 import jakarta.persistence.*;
+import lombok.Data;
 import java.time.LocalDateTime;
 import java.util.List;
 
+@Data
 @Entity
 @Table(name = "pipeline")
 public class Pipeline {
@@ -24,7 +26,7 @@ public class Pipeline {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
-    @OneToMany(mappedBy = "pipeline", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OneToMany(mappedBy = "pipeline", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     private List<Build> builds;
 
     public Pipeline() {}
@@ -32,26 +34,16 @@ public class Pipeline {
     public Pipeline(String name, String jenkinsUrl) {
         this.name = name;
         this.jenkinsUrl = jenkinsUrl;
-        this.createdAt = LocalDateTime.now();
-        this.updatedAt = LocalDateTime.now();
     }
 
-    // Getters and Setters
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
+    @PrePersist
+    public void onCreate() {
+        createdAt = LocalDateTime.now();
+        updatedAt = LocalDateTime.now();
+    }
 
-    public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
-
-    public String getJenkinsUrl() { return jenkinsUrl; }
-    public void setJenkinsUrl(String jenkinsUrl) { this.jenkinsUrl = jenkinsUrl; }
-
-    public LocalDateTime getCreatedAt() { return createdAt; }
-    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
-
-    public LocalDateTime getUpdatedAt() { return updatedAt; }
-    public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
-
-    public List<Build> getBuilds() { return builds; }
-    public void setBuilds(List<Build> builds) { this.builds = builds; }
+    @PreUpdate
+    public void onUpdate() {
+        updatedAt = LocalDateTime.now();
+    }
 }
