@@ -37,14 +37,14 @@ public class JenkinsLogController {
             @RequestParam String token) {
         try {
             if (!token.equals(webhookSecretToken)) {
-                System.err.println("❌ Invalid webhook token");
+                System.err.println("Invalid webhook token");
                 Map<String, String> error = new HashMap<>();
                 error.put("status", "error");
                 error.put("message", "Invalid webhook token");
                 return ResponseEntity.status(403).body(error);
             }
 
-            System.out.println("✓ Webhook received - Job: " + jobName + ", Build: " + buildNumber);
+            System.out.println("Webhook received - Job: " + jobName + ", Build: " + buildNumber);
 
             BuildDTO build = logService.collectAndSaveLogs(jobName, buildNumber, buildStatus);
 
@@ -53,11 +53,11 @@ public class JenkinsLogController {
             response.put("message", "Build logs collected and saved");
             response.put("data", build);
 
-            System.out.println("✅ Webhook processed successfully");
+            System.out.println("Webhook processed successfully");
             return ResponseEntity.ok(response);
 
         } catch (Exception e) {
-            System.err.println("❌ Webhook error: " + e.getMessage());
+            System.err.println("Webhook error: " + e.getMessage());
             Map<String, String> error = new HashMap<>();
             error.put("status", "error");
             error.put("message", e.getMessage());
